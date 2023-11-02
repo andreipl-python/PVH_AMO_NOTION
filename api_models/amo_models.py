@@ -1,6 +1,3 @@
-import asyncio
-from pprint import pprint
-
 import aiohttp
 
 
@@ -69,10 +66,10 @@ class AMO:
                     result += fields_data['_embedded']['custom_fields']
         return result
 
-
-async def main():
-    res = await AMO().get_custom_fields()
-    pprint(res)
-
-
-asyncio.run(main())
+#
+# async def main():
+#     res = await AMO().get_custom_fields()
+#     pprint(res)
+#
+#
+# asyncio.run(main())
