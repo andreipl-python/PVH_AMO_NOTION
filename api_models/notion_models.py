@@ -132,11 +132,9 @@ class Notion:
         print(response)
 
 
-
-
 async def main():
-#     # res = await Notion().get_database()
-#     # res = await Notion().database_query(db_id)
+    # res = await Notion().get_database()
+    # res = await Notion().database_query(db_id)
     test = AmoCustomField(name='Потенциал возврата', field_id=1005245, entity='leads', field_type='select', enums=None,
                           sort=639, required_statuses='3351007,143', group_name='leads_28471678882706', is_deleted=0,
                           db_page_id=None, enum_page_id=None, required_statuses_page_id=None)
