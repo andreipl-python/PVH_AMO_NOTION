@@ -1,70 +1,79 @@
+import logging
+from datetime import datetime, timedelta
+from pprint import pprint
 from sqlite3 import Row
-from typing import Optional, List
+from typing import List
 
 from api_models.amo_models import AMO
 from api_models.notion_models import Notion
+from object_models import AmoCustomField
 from sql import SQLiteDB
 
-
-class AmoCustomField:
-    def __init__(self, name: str, field_id: int, entity: str, field_type: str, enums: Optional[str], sort: int,
-                 required_statuses: Optional[str], group_name: str, is_deleted: int = 0,
-                 db_page_id: Optional[str] = None, enum_page_id: Optional[str] = None,
-                 required_statuses_page_id: Optional[str] = None):
-        self.name = name
-        self.field_id = field_id
-        self.entity = entity
-        self.field_type = field_type
-        self.enums = enums
-        self.sort = sort
-        self.required_statuses = required_statuses
-        self.group_name = group_name
-        self.is_deleted = is_deleted
-        self.db_page_id = db_page_id
-        self.enum_page_id = enum_page_id
-        self.required_statuses_page_id = required_statuses_page_id
-
-    def __str__(self):
-        return (f"AmoCustomField(name={self.name}, field_id={self.field_id}, entity={self.entity}, "
-                f"field_type={self.field_type}, enums={self.enums}, sort={self.sort}, "
-                f"required_statuses={self.required_statuses}, group_name={self.group_name}, is_deleted={self.is_deleted}, "
-                f"db_page_id={self.db_page_id}, enum_page_id={self.enum_page_id}, "
-                f"required_statuses_page_id={self.required_statuses_page_id}")
+logger = logging.getLogger('SERVICE')
 
 
-async def get_list_of_custom_fields_objects() -> List[AmoCustomField]:
-    fields_data = await AMO().get_custom_fields()
+async def get_list_of_custom_fields_objects(access_token: str, refresh_token: str) -> List[AmoCustomField]:
+    amo = AMO(access_token, refresh_token)
+    fields_data = await amo.get_custom_fields()
     field_objects_list = []
+
+    new_enum_counter, new_groups_counter = 0, 0
     for field_dict in fields_data:
-        enums = None
-        if field_dict.get('enums'):
-            enums_list = [','.join(str(value) for value in enum.values()) for enum in field_dict.get('enums')]
-            enums = ':'.join(enums_list)
+        if field_dict.get('name') not in ['Телефон', 'Email']:
+            enums = field_dict.get('enums')
+            if enums:
+                for enum in enums:
+                    is_enum_exist = await SQLiteDB().is_enum_exist(enum.get('id'))
+                    if not is_enum_exist:
+                        enum_id, value = enum.get('id'), enum.get('value')
+                        await SQLiteDB().insert_enum_data(enum_id=enum_id, value=value)
+                        await Notion().insert_into_enum_db(enum_id=enum_id, value=value)
+                        new_enum_counter += 1
 
-        required_statuses = None
-        if field_dict.get('required_statuses'):
-            required_statuses_list = [','.join(str(value) for value in required_status.values())
-                                      for required_status in field_dict.get('required_statuses')]
-            required_statuses = ':'.join(required_statuses_list)
+                enums = ':'.join([str(enum.get("id")) for enum in field_dict.get('enums')])
 
-        field = AmoCustomField(name=field_dict.get('name'),
-                               field_id=field_dict.get('id'),
-                               entity=field_dict.get('entity_type'),
-                               field_type=field_dict.get('type'),
-                               enums=enums,
-                               sort=field_dict.get('sort'),
-                               required_statuses=required_statuses,
-                               group_name=field_dict.get('group_id'))
-        field_objects_list.append(field)
+            group_id = field_dict.get('group_id')
+            if group_id:
+                is_group_exist = await SQLiteDB().is_group_exist(group_id)
+                if not is_group_exist:
+                    group_name = await amo.get_group_name(group_id)
+                    await SQLiteDB().insert_group_data(group_id, group_name)
+                    new_groups_counter += 1
 
+            field = AmoCustomField(name=field_dict.get('name'),
+                                   field_id=field_dict.get('id'),
+                                   entity=field_dict.get('entity_type'),
+                                   field_type=field_dict.get('type'),
+                                   enums=enums,
+                                   sort=field_dict.get('sort'),
+                                   group_id=field_dict.get('group_id'))
+            field_objects_list.append(field)
+
+    logger.info(f'Enums Updated. Create {new_enum_counter} new enum values')
+    logger.info(f'Groups Updated. Create {new_groups_counter} new group values')
     return field_objects_list
 
 
-async def update_sql_table():
-    await SQLiteDB().create_custom_fields_table()
+async def update_access_data() -> tuple:
+    sid, access_token, create_time_str, refresh_token = await SQLiteDB().get_access_data()
+    create_time = datetime.strptime(create_time_str, "%Y-%m-%d %H:%M:%S")
+    amo = AMO(access_token, refresh_token)
+    if not access_token or not refresh_token:
+        return await amo.get_access_token_first_time()
+    if datetime.now() - create_time > timedelta(hours=12):
+        return await amo.get_new_access_token()
+    return access_token, refresh_token
 
-    fields_data: List[AmoCustomField] = await get_list_of_custom_fields_objects()
+
+async def update_sql_table(access_token: str, refresh_token: str):
+    await SQLiteDB().create_custom_fields_table()
+    await SQLiteDB().create_enums_table()
+    await SQLiteDB().create_groups_table()
+
+    fields_data: List[AmoCustomField] = await get_list_of_custom_fields_objects(access_token, refresh_token)
     sql_fields_data: List[Row] = await SQLiteDB().get_all_fields_data()
+
+    del_count, new_count, upd_count = 0, 0, 0
 
     if len(sql_fields_data) > len(fields_data):
         sql_field_ids = [t[2] for t in sql_fields_data]
@@ -72,25 +81,26 @@ async def update_sql_table():
         missing_field_ids = list(set(sql_field_ids) - set(amo_field_ids))
         for missing_field_id in missing_field_ids:
             await SQLiteDB().update_field_data(missing_field_id, {'is_deleted': 1})
-            print(f'Удалил запись ID {missing_field_id}')
+            del_count += 1
 
     for field in fields_data:
         is_field_exist = await SQLiteDB().is_field_exist(field.field_id)
         if not is_field_exist:
             await SQLiteDB().insert_field_data(field)
-            print(f'Создал запись ID {field.field_id}')
+            new_count += 1
         else:
             sql_field_data = await SQLiteDB().get_field_data(field.field_id)
             (sql_field_name, sql_field_entity, sql_field_type,
-             sql_field_enums, sql_field_sort, sql_field_required_statuses,
-             sql_field_group_name) = (sql_field_data[0][1], sql_field_data[0][3], sql_field_data[0][4],
-                                      sql_field_data[0][6], sql_field_data[0][7], sql_field_data[0][8],
-                                      sql_field_data[0][9])
-            if (field.name, field.entity, field.field_type, field.enums, field.sort, field.required_statuses,
-                field.group_name) != (sql_field_name, sql_field_entity, sql_field_type, sql_field_enums,
-                                      sql_field_sort, sql_field_required_statuses, sql_field_group_name):
+             sql_field_enums, sql_field_sort, sql_field_group_id) = (
+                sql_field_data[0][1], sql_field_data[0][3], sql_field_data[0][4],
+                sql_field_data[0][6], sql_field_data[0][7], sql_field_data[0][8])
+            if ((field.name, field.entity, field.field_type, field.enums, field.sort, field.group_id) !=
+                    (sql_field_name, sql_field_entity, sql_field_type, sql_field_enums, sql_field_sort,
+                     sql_field_group_id)):
                 await SQLiteDB().update_field_data_by_object(field)
-                print(f'Обновил запись ID {field.field_id}')
+                upd_count += 1
+
+    logger.info(f'SQL Updated. Delete {del_count} rows, create {new_count} rows, update {upd_count} rows')
 
 
 async def update_notion_table():
@@ -99,14 +109,16 @@ async def update_notion_table():
     for sql_field_data in sql_fields_data:
         field = AmoCustomField(name=sql_field_data[1], field_id=sql_field_data[2], entity=sql_field_data[3],
                                field_type=sql_field_data[4], enums=sql_field_data[6], sort=sql_field_data[7],
-                               required_statuses=sql_field_data[8], group_name=sql_field_data[9],
-                               is_deleted=sql_field_data[5], db_page_id=sql_field_data[11],
-                               enum_page_id=sql_field_data[12], required_statuses_page_id=sql_field_data[13])
+                               group_id=sql_field_data[8], is_deleted=sql_field_data[5], db_page_id=sql_field_data[10])
         fields_data.append(field)
 
-    count = 0
+    new_count, upd_count = 0, 0
     for field in fields_data:
         if not field.db_page_id:
             await Notion().insert_into_db(field)
-            count += 1
-            print(f'Create row {count} for {field}')
+            new_count += 1
+        elif field.db_page_id:
+            await Notion().update_db_page(field)
+            upd_count += 1
+        await SQLiteDB().set_unmodified_field(field.field_id)
+    logger.info(f'Notion Updated. Create {new_count} rows, update {upd_count} rows')
