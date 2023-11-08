@@ -17,20 +17,26 @@ async def get_list_of_custom_fields_objects(access_token: str, refresh_token: st
     fields_data = await amo.get_custom_fields()
     field_objects_list = []
 
-    new_enum_counter, new_groups_counter = 0, 0
+    new_enum_counter, upd_enum_counter, new_groups_counter = 0, 0, 0
     for field_dict in fields_data:
         if field_dict.get('name') not in ['Телефон', 'Email']:
             enums = field_dict.get('enums')
             if enums:
                 for enum in enums:
+                    enum_id, value = enum.get('id'), enum.get('value')
                     is_enum_exist = await SQLiteDB().is_enum_exist(enum.get('id'))
                     if not is_enum_exist:
-                        enum_id, value = enum.get('id'), enum.get('value')
                         await SQLiteDB().insert_enum_data(enum_id=enum_id, value=value)
                         await Notion().insert_into_enum_db(enum_id=enum_id, value=value)
                         new_enum_counter += 1
+                    elif is_enum_exist:
+                        sql_enum_data: List[Row] = await SQLiteDB().get_enum_data(enum_id)
+                        if value != sql_enum_data[0][2]:
+                            await SQLiteDB().update_enum_data(enum_id=enum_id, set_values={'value': value})
+                            await Notion().update_enum_page(enum_db_page_id=sql_enum_data[0][3], value=value)
+                            upd_enum_counter += 1
 
-                enums = ':'.join([str(enum.get("id")) for enum in field_dict.get('enums')])
+                enums = ':'.join([str(enum.get("id")) for enum in field_dict.get('enums')[:100]])
 
             group_id = field_dict.get('group_id')
             if group_id:
@@ -49,7 +55,7 @@ async def get_list_of_custom_fields_objects(access_token: str, refresh_token: st
                                    group_id=field_dict.get('group_id'))
             field_objects_list.append(field)
 
-    logger.info(f'Enums Updated. Create {new_enum_counter} new enum values')
+    logger.info(f'Enums Updated. Create {new_enum_counter} new enum values. Update {upd_enum_counter} enum values')
     logger.info(f'Groups Updated. Create {new_groups_counter} new group values')
     return field_objects_list
 

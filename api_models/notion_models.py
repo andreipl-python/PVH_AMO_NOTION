@@ -198,3 +198,28 @@ class Notion:
         result = await self.__post(method=method, data=data)
         await SQLiteDB().update_enum_data(enum_id=enum_id, set_values={'db_page_id': result.get('id')})
         return result
+
+    async def update_enum_page(self, enum_db_page_id: str, value: str) -> dict:
+        method = f'pages/{enum_db_page_id}'
+
+        properties = {
+            'Value': {
+                'title': [
+                    {
+                        'text': {
+                            'content': value
+                        }
+                    }
+                ]
+            },
+        }
+
+        data = {
+            'parent': {
+                'type': 'database_id',
+                'database_id': self.enum_db_id
+            },
+            'properties': properties
+        }
+        result = await self.__patch(method=method, data=data)
+        return result
