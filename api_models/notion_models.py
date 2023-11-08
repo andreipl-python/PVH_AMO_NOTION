@@ -31,11 +31,6 @@ class Notion:
             async with session.patch(f'{self.url}{method}', json=data, headers=self.headers) as response:
                 return await response.json()
 
-    async def __delete(self, method: str) -> dict:
-        async with aiohttp.ClientSession() as session:
-            async with session.delete(f'{self.url}{method}', headers=self.headers) as response:
-                return await response.json()
-
     async def get_database(self) -> dict:
         method = f'databases/{self.db_id}'
         return await self.__get(method)
@@ -203,7 +198,3 @@ class Notion:
         result = await self.__post(method=method, data=data)
         await SQLiteDB().update_enum_data(enum_id=enum_id, set_values={'db_page_id': result.get('id')})
         return result
-
-    async def delete_block(self, block_id: str):
-        method = f'blocks/{block_id}'
-        return await self.__delete(method=method)

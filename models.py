@@ -115,10 +115,20 @@ async def update_notion_table():
     new_count, upd_count = 0, 0
     for field in fields_data:
         if not field.db_page_id:
-            await Notion().insert_into_db(field)
-            new_count += 1
+            res = await Notion().insert_into_db(field)
+            if res.get('object') == 'error':
+                logger.error(f'Fail create row in Notion! Field ID: {field.field_id}, Field Entity: {field.entity}, '
+                             f'Message: {res.get("message")}')
+            else:
+                new_count += 1
+                await SQLiteDB().set_unmodified_field(field.field_id)
         elif field.db_page_id:
-            await Notion().update_db_page(field)
-            upd_count += 1
-        await SQLiteDB().set_unmodified_field(field.field_id)
+            res = await Notion().update_db_page(field)
+            if res.get('object') == 'error':
+                logger.error(f'Fail update row in Notion! Field ID: {field.field_id}, Field Entity: {field.entity}, '
+                             f'Message: {res.get("message")}')
+            else:
+                upd_count += 1
+                await SQLiteDB().set_unmodified_field(field.field_id)
+
     logger.info(f'Notion Updated. Create {new_count} rows, update {upd_count} rows')

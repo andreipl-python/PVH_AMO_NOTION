@@ -1,4 +1,3 @@
-import asyncio
 import datetime
 from sqlite3 import Row
 from typing import List, Union, Optional
@@ -79,11 +78,19 @@ class SQLiteDB:
         return await self.execute_query(query)
 
     async def create_groups_table(self) -> None:
-        query = '''CREATE TABLE IF NOT EXISTS groups
-        (id INTEGER PRIMARY KEY,
-        group_id TEXT,
-        group_name TEXT);'''
-        return await self.fetch_query(query)
+
+        check_table_query = '''SELECT count(*) FROM sqlite_master WHERE type='table' AND name='groups';'''
+        result = await self.fetch_query(check_table_query)
+        table_exists = result[0][0] > 0
+
+        if not table_exists:
+            create_table_query = '''CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY, group_id TEXT, 
+            group_name TEXT);'''
+            await self.execute_query(create_table_query)
+
+            insert_query = '''INSERT INTO groups (group_id, group_name) VALUES (?, ?)'''
+            insert_values = ('statistic', 'Статистика')
+            return await self.execute_query(insert_query, *insert_values)
 
     async def is_field_exist(self, field_id: int) -> bool:
         query = 'SELECT * FROM custom_fields WHERE field_id = ?;'
@@ -152,11 +159,3 @@ class SQLiteDB:
         insert_values = (field.name, field.entity, field.field_type, field.enums, field.sort, field.group_id,
                          field.field_id)
         await self.execute_query(query, *insert_values)
-
-#
-# async def main():
-#     res = await SQLiteDB().update_field_data(1001887, {'db_page_id': 'blblblblb'})
-#     print(res)
-#
-#
-# asyncio.run(main())
