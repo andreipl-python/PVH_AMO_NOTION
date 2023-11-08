@@ -53,6 +53,25 @@ class Notion:
             group_data = await SQLiteDB().get_group_data(field.group_id)
             group_name = group_data[0][2]
 
+        entity_translate = {'leads': 'Сделки', 'contacts': 'Контакты', 'companies': 'Компании'}
+        field_type_translate = {
+            'text': 'Текст',
+            'select': 'Список',
+            'checkbox': 'Флаг',
+            'url': 'Ссылка',
+            'textarea': 'Текстовая область',
+            'numeric': 'Число',
+            'date': 'Дата',
+            'multiselect': 'Мультисписок',
+            'streetaddress': 'Короткий адрес',
+            'tracking_data': 'Данные отслеживания',
+            'date_time': 'Дата и время',
+            'radiobutton': 'Переключатель',
+            'birthday': 'День рождения',
+            'file': 'Файл',
+            'multitext': 'Мультитекст'
+        }
+
         properties = {
             'group_name': {
                 'select': {
@@ -81,12 +100,12 @@ class Notion:
             },
             'Сущность': {
                 'select': {
-                    'name': field.entity
+                    'name': entity_translate.get(field.entity, field.entity)
                 }
             },
             'Тип поля': {
                 'select': {
-                    'name': field.field_type
+                    'name': field_type_translate.get(field.field_type, field.field_type)
                 }
             },
             'Значение поля (enums)': {
