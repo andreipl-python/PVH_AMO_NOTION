@@ -120,6 +120,7 @@ class Notion:
             },
             'properties': properties
         }
+
         result = await self.__post(method=method, data=data)
         await SQLiteDB().update_field_data(field_id=field.field_id, set_values={'db_page_id': result.get('id')})
         return result
