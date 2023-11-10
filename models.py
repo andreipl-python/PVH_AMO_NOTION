@@ -27,7 +27,8 @@ async def get_list_of_custom_fields_objects(access_token: str, refresh_token: st
                     is_enum_exist = await SQLiteDB().is_enum_exist(enum.get('id'))
                     if not is_enum_exist:
                         await SQLiteDB().insert_enum_data(enum_id=enum_id, value=value)
-                        await Notion().insert_into_enum_db(enum_id=enum_id, value=value)
+                        res = await Notion().insert_into_enum_db(enum_id=enum_id, value=value)
+                        print(res)
                         new_enum_counter += 1
                     elif is_enum_exist:
                         sql_enum_data: List[Row] = await SQLiteDB().get_enum_data(enum_id)
